@@ -1,0 +1,5 @@
+{
+  "name": "Remix: PSeInt Converter",
+  "description": "Convert PSeInt pseudocode to C/C++, Rust, and Python using AI.",
+  "requestFramePermissions": []
+}
