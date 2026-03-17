@@ -6,9 +6,14 @@ import {defineConfig, loadEnv} from 'vite';
 export default defineConfig(({mode}) => {
   const env = loadEnv(mode, '.', '');
   return {
+    base: '/PSEINT_converter/',
     plugins: [react(), tailwindcss()],
     define: {
       'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
+    },
+    optimizeDeps: {
+      // Necesario para que Transformers.js pueda cargar sus ficheros WASM y workers correctamente
+      exclude: ['@huggingface/transformers'],
     },
     resolve: {
       alias: {
