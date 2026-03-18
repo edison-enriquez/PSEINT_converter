@@ -1,15 +1,20 @@
 import { GoogleGenAI, GenerateContentResponse } from "@google/genai";
 
-const apiKey = process.env.GEMINI_API_KEY;
+const envApiKey = process.env.GEMINI_API_KEY;
 
 export type TargetLanguage = "C" | "C++" | "Rust" | "Python";
 
-export async function convertPSeInt(pseudocode: string, targetLanguage: TargetLanguage): Promise<string> {
-  if (!apiKey) {
+export async function convertPSeInt(
+  pseudocode: string,
+  targetLanguage: TargetLanguage,
+  apiKey?: string
+): Promise<string> {
+  const key = apiKey || envApiKey;
+  if (!key) {
     throw new Error("GEMINI_API_KEY is not set");
   }
 
-  const ai = new GoogleGenAI({ apiKey });
+  const ai = new GoogleGenAI({ apiKey: key });
   
   const systemInstruction = `You are an expert programmer specializing in PSeInt pseudocode and target languages like C, C++, Rust, and Python.
 Your task is to convert PSeInt pseudocode into clean, idiomatic, and functional code in the requested target language.
@@ -29,7 +34,7 @@ Follow these rules:
 
   try {
     const response: GenerateContentResponse = await ai.models.generateContent({
-      model: "gemini-3.1-pro-preview",
+      model: "gemini-2.0-flash",
       contents: prompt,
       config: {
         systemInstruction,
