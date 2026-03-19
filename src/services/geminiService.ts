@@ -112,3 +112,53 @@ PSeInt:  Segun <var> Hacer  <val>: ...  De Otro Modo: ... FinSegun
     throw error;
   }
 }
+
+const EXPLAIN_INSTRUCTION = (pseudocode: string, code: string, lang: string) =>
+  `Eres un tutor experto en programación que ayuda a estudiantes a entender cómo se convierten algoritmos de PSeInt a código real.
+
+El estudiante escribió el siguiente pseudocódigo en PSeInt:
+\`\`\`
+${pseudocode}
+\`\`\`
+
+Y fue convertido al siguiente código en ${lang}:
+\`\`\`${lang.toLowerCase()}
+${code}
+\`\`\`
+
+Tu rol:
+1. Explicar en español, de forma clara y pedagógica, cómo funciona el código convertido.
+2. Por cada estructura de PSeInt (Si/Entonces, Mientras, Para, Repetir...), explicar cómo se traduce al lenguaje destino y por qué.
+3. Responder las preguntas del estudiante de forma concisa pero completa.
+4. Usar bloques de código Markdown cuando sea útil.
+5. Ser motivador y didáctico.`;
+
+export async function* explainCodeGemini(
+  pseudocode: string,
+  convertedCode: string,
+  language: TargetLanguage,
+  messages: { role: "user" | "assistant"; content: string }[],
+  apiKey?: string
+): AsyncGenerator<string> {
+  const key = apiKey || envApiKey;
+  if (!key) throw new Error("GEMINI_API_KEY is not set");
+
+  const ai = new GoogleGenAI({ apiKey: key });
+
+  const responseStream = ai.models.generateContentStream({
+    model: "gemini-2.0-flash",
+    config: {
+      systemInstruction: EXPLAIN_INSTRUCTION(pseudocode, convertedCode, language),
+      temperature: 0.6,
+    },
+    contents: messages.map((m) => ({
+      role: m.role === "assistant" ? "model" : "user",
+      parts: [{ text: m.content }],
+    })),
+  });
+
+  for await (const chunk of await responseStream) {
+    const text = chunk.text ?? "";
+    if (text) yield text;
+  }
+}

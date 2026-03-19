@@ -2,8 +2,17 @@ import Groq from "groq-sdk";
 
 export type TargetLanguage = "C" | "C++" | "Rust" | "Python";
 
-// Modelo rápido y gratuito de Groq con excelente capacidad de código
+// Modelo por defecto
 export const GROQ_MODEL = "llama-3.3-70b-versatile";
+
+// Modelos disponibles en Groq
+export const GROQ_MODELS: { id: string; label: string; description: string }[] = [
+  { id: "llama-3.3-70b-versatile",   label: "Llama 3.3 70B",   description: "Máxima calidad · recomendado" },
+  { id: "qwen/qwen3-32b",            label: "Qwen3 32B",        description: "Alibaba · razonamiento avanzado" },
+  { id: "llama-3.1-8b-instant",      label: "Llama 3.1 8B",    description: "Más rápido · ligero" },
+  { id: "gemma2-9b-it",              label: "Gemma 2 9B",      description: "Google · equilibrado" },
+  { id: "mixtral-8x7b-32768",        label: "Mixtral 8×7B",    description: "Contexto 32k" },
+];
 
 const SYSTEM_PROMPT = `You are an expert programmer specializing in PSeInt pseudocode conversion to C, C++, Rust, and Python.
 Your task is to convert PSeInt pseudocode into clean, idiomatic, and fully functional code in the requested target language.
@@ -79,7 +88,8 @@ PSeInt:  Segun <var> Hacer  <val>: ...  De Otro Modo: ... FinSegun
 export async function convertPSeIntGroq(
   pseudocode: string,
   targetLanguage: TargetLanguage,
-  apiKey: string
+  apiKey: string,
+  model: string = GROQ_MODEL
 ): Promise<string> {
   if (!apiKey) {
     throw new Error("GROQ_API_KEY is not set");
@@ -89,7 +99,7 @@ export async function convertPSeIntGroq(
 
   try {
     const completion = await groq.chat.completions.create({
-      model: GROQ_MODEL,
+      model,
       messages: [
         { role: "system", content: SYSTEM_PROMPT },
         {
@@ -108,5 +118,55 @@ export async function convertPSeIntGroq(
   } catch (error) {
     console.error("Error converting PSeInt with Groq:", error);
     throw error;
+  }
+}
+
+export type ChatMessage = { role: "user" | "assistant"; content: string };
+
+const EXPLAIN_SYSTEM = (pseudocode: string, code: string, lang: string) =>
+  `Eres un tutor experto en programación que ayuda a estudiantes a entender cómo se convierten algoritmos de PSeInt a código real.
+
+El estudiante escribió el siguiente pseudocódigo en PSeInt:
+\`\`\`
+${pseudocode}
+\`\`\`
+
+Y fue convertido al siguiente código en ${lang}:
+\`\`\`${lang.toLowerCase()}
+${code}
+\`\`\`
+
+Tu rol:
+1. Explicar en español, de forma clara y pedagógica, cómo funciona el código convertido.
+2. Por cada estructura de PSeInt (Si/Entonces, Mientras, Para, Repetir...), explicar cómo se traduce al lenguaje destino y por qué.
+3. Responder las preguntas del estudiante de forma concisa pero completa.
+4. Usar bloques de código Markdown cuando sea útil para ilustrar.
+5. Ser motivador y didáctico — el objetivo es que el estudiante aprenda.`;
+
+export async function* explainCodeGroq(
+  pseudocode: string,
+  convertedCode: string,
+  language: TargetLanguage,
+  messages: ChatMessage[],
+  apiKey: string,
+  model: string = GROQ_MODEL
+): AsyncGenerator<string> {
+  if (!apiKey) throw new Error("GROQ_API_KEY is not set");
+  const groq = new Groq({ apiKey, dangerouslyAllowBrowser: true });
+
+  const stream = await groq.chat.completions.create({
+    model,
+    messages: [
+      { role: "system", content: EXPLAIN_SYSTEM(pseudocode, convertedCode, language) },
+      ...messages,
+    ],
+    stream: true,
+    temperature: 0.6,
+    max_tokens: 1024,
+  });
+
+  for await (const chunk of stream) {
+    const delta = chunk.choices[0]?.delta?.content ?? "";
+    if (delta) yield delta;
   }
 }
