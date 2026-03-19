@@ -133,7 +133,7 @@ function loadEnabledModels(): EnabledModels {
 export default function App() {
   const [input, setInput] = useState(EXAMPLE_PSEINT);
   const [output, setOutput] = useState("");
-  const [language, setLanguage] = useState<TargetLanguage>("Python");
+  const [language, setLanguage] = useState<TargetLanguage>("C");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
