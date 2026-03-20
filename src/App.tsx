@@ -8,6 +8,7 @@ import { DiffEditor } from "@monaco-editor/react";
 import { runAgentLoop, type AgentStep, type AgentResult } from "./services/agentService";
 import { runBugDebate, type DebateMessage } from "./services/debateService";
 import { generateCleanCodeThread, type CleanCodeItem } from "./services/cleanCodeService";
+import { convertAndVerify, type ConvertStep } from "./services/convertService";
 import * as Prism from "prismjs";
 import Editor from "react-simple-code-editor";
 import "prismjs/themes/prism-tomorrow.css";
@@ -208,6 +209,9 @@ export default function App() {
   const [testSuggestions, setTestSuggestions] = useState<Record<string, string>>({});
   const [testSuggestionLoading, setTestSuggestionLoading] = useState<Record<string, boolean>>({});
 
+  // — Estado de verificación de conversión —
+  const [lastConvertStep, setLastConvertStep] = useState<ConvertStep | null>(null);;
+
   useEffect(() => {
     if (chatScrollRef.current) {
       chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
@@ -230,9 +234,10 @@ export default function App() {
     if (!input.trim()) return;
     setLoading(true);
     setError(null);
+    setLastConvertStep(null);
     setInferenceElapsed(0);
 
-    // Arrancar el timer global desde el inicio (sirve para Gemini y para local antes del primer token)
+    // Arrancar el timer global desde el inicio
     inferenceStartRef.current = performance.now();
     inferenceTimerRef.current = setInterval(() => {
       if (inferenceStartRef.current) {
@@ -243,35 +248,61 @@ export default function App() {
     }, 200);
 
     try {
-      let result: string;
-      if (selectedModel === "groq") {
-        result = await convertPSeIntGroq(input, language, groqApiKey, groqModel);
-      } else {
-        result = await convertPSeInt(input, language, geminiApiKey || undefined);
+      let stateReset = false;
+      for await (const step of convertAndVerify(
+        input, language, groqModel, groqApiKey,
+        geminiApiKey || undefined,
+        selectedModel === "gemini"
+      )) {
+        setLastConvertStep(step);
+
+        if (step.type === "error") {
+          const message = step.message;
+          if (message.includes("GEMINI_API_KEY") || message.includes("GROQ_API_KEY")) {
+            setError("Falta la clave de API. Ingrésala en el campo correspondiente.");
+          } else if (message.includes("API key") || message.includes("401") || message.includes("403") || message.includes("invalid_api_key")) {
+            setError("Clave de API inválida o sin permisos. Verifica tu clave.");
+          } else if (message.includes("404") || message.includes("not found")) {
+            setError(`Modelo no encontrado: ${message}`);
+          } else if (message.includes("fetch") || message.includes("network") || message.includes("Failed to fetch")) {
+            setError("Error de red. Comprueba tu conexión a internet.");
+          } else {
+            setError(`Error: ${message}`);
+          }
+          console.error(step.message);
+          return;
+        }
+
+        // Mostrar el código en cuanto está disponible y resetear estado dependiente
+        if ("code" in step && step.code) {
+          setOutput(step.code);
+          if (!stateReset) {
+            stateReset = true;
+            // Reset chat so the explainer shows context for the new conversion
+            setChatMessages([]);
+            setShowExplainer(false);
+            setStreamingMessage("");
+            // Reset runner
+            setRunResult(null);
+            setTestCases([]);
+            setTestResults([]);
+            setRunInput("");
+            setTestExplanations({});
+            setStreamingExplanations({});
+            // Reset agent / debate / clean code / fix
+            setAgentSteps([]);
+            setAgentResult(null);
+            setShowAgent(false);
+            setDebateMessages([]);
+            setShowDebate(false);
+            setCleanCodeItems([]);
+            setCleanCodePartial("");
+            setShowCleanCode(false);
+            setTestSuggestions({});
+            setTestSuggestionLoading({});
+          }
+        }
       }
-      setOutput(result);
-      // Reset chat so the explainer shows context for the new conversion
-      setChatMessages([]);
-      setShowExplainer(false);
-      setStreamingMessage("");
-      // Reset runner
-      setRunResult(null);
-      setTestCases([]);
-      setTestResults([]);
-      setRunInput("");
-      setTestExplanations({});
-      setStreamingExplanations({});
-      // Reset agent / debate / clean code / fix
-      setAgentSteps([]);
-      setAgentResult(null);
-      setShowAgent(false);
-      setDebateMessages([]);
-      setShowDebate(false);
-      setCleanCodeItems([]);
-      setCleanCodePartial("");
-      setShowCleanCode(false);
-      setTestSuggestions({});
-      setTestSuggestionLoading({});
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       if (message.includes("GEMINI_API_KEY") || message.includes("GROQ_API_KEY")) {
@@ -946,7 +977,13 @@ export default function App() {
                 ) : (
                   <Languages className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                 )}
-                {loading ? "Convirtiendo..." : "Convertir Código"}
+                {!loading
+                  ? "Convertir Código"
+                  : lastConvertStep?.type === "verifying"
+                  ? "Verificando…"
+                  : lastConvertStep?.type === "fixing_compile"
+                  ? `Corrigiendo (${lastConvertStep.attempt}/3)…`
+                  : "Convirtiendo…"}
               </button>
             </div>
           </section>
@@ -957,6 +994,23 @@ export default function App() {
               <div className="flex items-center gap-2 text-slate-400">
                 <Code2 className="w-4 h-4" />
                 <span className="text-[10px] sm:text-xs font-semibold uppercase tracking-wider">Código {language}</span>
+                {/* Badge de verificación de compilación */}
+                {loading && lastConvertStep?.type === "verifying" && (
+                  <span className="flex items-center gap-1 text-[10px] text-slate-500">
+                    <Loader className="w-3 h-3 animate-spin" />verificando…
+                  </span>
+                )}
+                {loading && lastConvertStep?.type === "fixing_compile" && (
+                  <span className="flex items-center gap-1 text-[10px] text-orange-400">
+                    <Wrench className="w-3 h-3 animate-pulse" />corrigiendo error…
+                  </span>
+                )}
+                {!loading && lastConvertStep?.type === "done" && lastConvertStep.verified && (
+                  <span className={cn("flex items-center gap-1 text-[10px]", lastConvertStep.fixed ? "text-blue-400" : "text-emerald-400")}>
+                    <ShieldCheck className="w-3 h-3" />
+                    {lastConvertStep.fixed ? "errores corregidos ✓" : "compilado ✓"}
+                  </span>
+                )}
               </div>
               {output && !loading && (
               <div className="flex items-center gap-3">
