@@ -8,11 +8,10 @@ export const GROQ_MODEL = "llama-3.3-70b-versatile";
 
 // Modelos disponibles en Groq
 export const GROQ_MODELS: { id: string; label: string; description: string }[] = [
-  { id: "llama-3.3-70b-versatile",          label: "Llama 3.3 70B",         description: "Máxima calidad · recomendado" },
-  { id: "qwen/qwen3-32b",                   label: "Qwen3 32B",              description: "Alibaba · razonamiento avanzado" },
-  { id: "deepseek-r1-distill-llama-70b",    label: "DeepSeek R1 70B",        description: "Razonamiento profundo · código" },
-  { id: "deepseek-r1-distill-qwen-32b",     label: "DeepSeek R1 Qwen 32B",   description: "Código y razonamiento · rápido" },
-  { id: "llama-3.1-8b-instant",             label: "Llama 3.1 8B",           description: "Más rápido · ligero" },
+  { id: "llama-3.3-70b-versatile",                    label: "Llama 3.3 70B",    description: "Máxima calidad · recomendado" },
+  { id: "meta-llama/llama-4-scout-17b-16e-instruct",  label: "Llama 4 Scout",    description: "Meta · multimodal y rápido" },
+  { id: "qwen/qwen3-32b",                             label: "Qwen3 32B",        description: "Alibaba · razonamiento avanzado" },
+  { id: "moonshotai/kimi-k2-instruct",                label: "Kimi K2",          description: "MoonshotAI · código y agentes" },
 ];
 
 const SYSTEM_PROMPT = `Eres un compilador experto en PSeInt. Conviertes pseudocódigo PSeInt a código real en C, C++, Rust o Python.
