@@ -56,14 +56,35 @@ Formato requerido:
 // ─── Parser ───────────────────────────────────────────────────────────────────
 
 function parseTestCases(raw: string): TestCase[] {
-  const match = raw.match(/\[[\s\S]*\]/);
-  if (!match) throw new Error("La IA no devolvió un JSON válido con los casos de prueba");
-  const cases = JSON.parse(match[0]) as TestCase[];
-  return cases.map((tc, i) => ({
-    id: tc.id ?? `tc${i + 1}`,
-    description: tc.description ?? `Caso ${i + 1}`,
-    input: tc.input ?? "",
-    expectedOutput: tc.expectedOutput ?? "",
+  // Estrategia 1: encontrar el bloque [ ... ] más externo
+  const arrayMatch = raw.match(/\[[\s\S]*\]/);
+  if (!arrayMatch) throw new Error("La IA no devolvió un JSON válido con los casos de prueba");
+
+  let parsed: unknown[];
+  try {
+    parsed = JSON.parse(arrayMatch[0]);
+  } catch {
+    // Estrategia 2: intentar reparar comillas y caracteres escapados comunes
+    const repaired = arrayMatch[0]
+      .replace(/[\u201C\u201D]/g, '"')   // comillas tipográficas
+      .replace(/,\s*\]/g, "]")           // trailing comma
+      .replace(/,\s*\}/g, "}");          // trailing comma en objeto
+    try {
+      parsed = JSON.parse(repaired);
+    } catch {
+      throw new Error("La IA no devolvió un JSON válido con los casos de prueba");
+    }
+  }
+
+  if (!Array.isArray(parsed) || parsed.length === 0) {
+    throw new Error("La IA no devolvió un JSON válido con los casos de prueba");
+  }
+
+  return (parsed as Record<string, unknown>[]).map((tc, i) => ({
+    id: String(tc.id ?? `tc${i + 1}`),
+    description: String(tc.description ?? `Caso ${i + 1}`),
+    input: String(tc.input ?? ""),
+    expectedOutput: String(tc.expectedOutput ?? ""),
   }));
 }
 
@@ -80,15 +101,46 @@ export async function generateTestCasesGroq(
 
   const groq = new Groq({ apiKey, dangerouslyAllowBrowser: true });
 
-  const completion = await groq.chat.completions.create({
-    model,
-    messages: [{ role: "user", content: buildPrompt(pseudocode, code, language) }],
-    temperature: 0.2,
-    max_tokens: 1024,
-  });
+  // Bucle agente: hasta 3 intentos. Si el JSON es inválido, el modelo recibe
+  // su propia respuesta y una instrucción de corrección.
+  const messages: { role: "user" | "assistant"; content: string }[] = [
+    { role: "user", content: buildPrompt(pseudocode, code, language) },
+  ];
 
-  const text = stripThinkTags(completion.choices[0]?.message?.content ?? "");
-  return parseTestCases(text);
+  let lastError: Error = new Error("La IA no devolvió un JSON válido con los casos de prueba");
+
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    const completion = await groq.chat.completions.create({
+      model,
+      messages,
+      temperature: attempt === 1 ? 0.2 : 0.1,
+      max_tokens: 1200,
+    });
+
+    const raw = stripThinkTags(completion.choices[0]?.message?.content ?? "");
+
+    try {
+      return parseTestCases(raw);
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+
+      if (attempt < 3) {
+        // Añadir la respuesta errónea y la instrucción de corrección
+        messages.push(
+          { role: "assistant", content: raw },
+          {
+            role: "user",
+            content:
+              `Tu respuesta anterior no es un JSON válido. Devuelve ÚNICAMENTE el array JSON.` +
+              ` La primera línea debe ser "[" y la última "]".` +
+              ` Sin texto antes ni después. Sin markdown fences.`,
+          }
+        );
+      }
+    }
+  }
+
+  throw lastError;
 }
 
 // ─── Gemini ───────────────────────────────────────────────────────────────────
@@ -104,14 +156,29 @@ export async function generateTestCasesGemini(
 
   const ai = new GoogleGenAI({ apiKey: key });
 
-  const response = await ai.models.generateContent({
-    model: "gemini-2.0-flash",
-    contents: buildPrompt(pseudocode, code, language),
-    config: { temperature: 0.2 },
-  });
+  let lastError: Error = new Error("La IA no devolvió un JSON válido con los casos de prueba");
 
-  const text = response.text ?? "";
-  return parseTestCases(text);
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    const prompt = attempt === 1
+      ? buildPrompt(pseudocode, code, language)
+      : buildPrompt(pseudocode, code, language) +
+        `\n\nRECUERDA: Responde ÚNICAMENTE con el array JSON. Empieza con "[" y termina con "]". Sin ningún texto adicional.`;
+
+    const response = await ai.models.generateContent({
+      model: "gemini-2.0-flash",
+      contents: prompt,
+      config: { temperature: attempt === 1 ? 0.2 : 0.1 },
+    });
+
+    const text = response.text ?? "";
+    try {
+      return parseTestCases(text);
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+    }
+  }
+
+  throw lastError;
 }
 
 // ─── Fail Explanation (streaming) ────────────────────────────────────────────
