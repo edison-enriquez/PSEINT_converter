@@ -8,6 +8,7 @@
 
 import { generateText } from "ai";
 import { createGroq } from "@ai-sdk/groq";
+import { stripThinkTags } from "./modelUtils";
 import type { TargetLanguage } from "./geminiService";
 import { runCode, type TestCase, type TestResult, isTestPass } from "./codeRunnerService";
 import { generateTestCasesGroq } from "./testGenService";
@@ -164,7 +165,7 @@ export async function runAgentLoop(
           maxOutputTokens: 2048,
         });
 
-        currentCode = text
+        currentCode = stripThinkTags(text)
           .replace(/```[a-z]*\n?/g, "")
           .replace(/\n?```/g, "")
           .trim();

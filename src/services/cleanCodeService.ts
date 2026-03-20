@@ -5,6 +5,7 @@
 
 import Groq from "groq-sdk";
 import { GROQ_MODEL } from "./groqService";
+import { ThinkStreamFilter } from "./modelUtils";
 import type { TargetLanguage } from "./geminiService";
 
 // ─── Tipos públicos ────────────────────────────────────────────────────────────
@@ -117,6 +118,8 @@ export async function generateCleanCodeThread(
   const groq = new Groq({ apiKey, dangerouslyAllowBrowser: true });
 
   let fullText = "";
+  const filter = new ThinkStreamFilter();
+  let visibleText = "";
 
   const stream = await groq.chat.completions.create({
     model,
@@ -133,9 +136,14 @@ export async function generateCleanCodeThread(
     const delta = chunk.choices[0]?.delta?.content ?? "";
     if (delta) {
       fullText += delta;
-      onPartial?.(fullText);
+      const visible = filter.feed(delta);
+      if (visible) {
+        visibleText += visible;
+        onPartial?.(visibleText);
+      }
     }
   }
+  visibleText += filter.flush();
 
   // Parsear JSON — buscar el array aunque venga con texto extra
   const match = fullText.match(/\[\s*\{[\s\S]*\}\s*\]/);

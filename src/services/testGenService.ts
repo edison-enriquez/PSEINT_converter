@@ -6,6 +6,7 @@
 import Groq from "groq-sdk";
 import { GoogleGenAI } from "@google/genai";
 import { GROQ_MODEL } from "./groqService";
+import { stripThinkTags, ThinkStreamFilter } from "./modelUtils";
 import type { TargetLanguage } from "./geminiService";
 import type { TestCase, TestResult } from "./codeRunnerService";
 
@@ -89,7 +90,7 @@ export async function generateTestCasesGroq(
     max_tokens: 1024,
   });
 
-  const text = completion.choices[0]?.message?.content ?? "";
+  const text = stripThinkTags(completion.choices[0]?.message?.content ?? "");
   return parseTestCases(text);
 }
 
@@ -168,10 +169,16 @@ export async function* explainFailedTestGroq(
     temperature: 0.4,
     max_tokens: 300,
   });
+  const filter = new ThinkStreamFilter();
   for await (const chunk of stream) {
     const delta = chunk.choices[0]?.delta?.content ?? "";
-    if (delta) yield delta;
+    if (delta) {
+      const visible = filter.feed(delta);
+      if (visible) yield visible;
+    }
   }
+  const tail = filter.flush();
+  if (tail) yield tail;
 }
 
 export async function* explainFailedTestGemini(
@@ -230,7 +237,7 @@ RESPONDE ÚNICAMENTE con el código corregido en ${lang}. Sin explicaciones, sin
 }
 
 function stripCodeFences(raw: string): string {
-  return raw
+  return stripThinkTags(raw)
     .replace(/^```[\w]*\n?/, "")
     .replace(/\n?```$/, "")
     .trim();

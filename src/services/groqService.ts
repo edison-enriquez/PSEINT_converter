@@ -1,4 +1,5 @@
 import Groq from "groq-sdk";
+import { stripThinkTags, ThinkStreamFilter } from "./modelUtils";
 
 export type TargetLanguage = "C" | "C++" | "Rust" | "Python";
 
@@ -114,7 +115,10 @@ export async function convertPSeIntGroq(
     const text = completion.choices[0]?.message?.content ?? "";
     if (!text) throw new Error("No response from Groq");
 
-    return text.replace(/```[a-z]*\n?/g, "").replace(/\n?```/g, "").trim();
+    return stripThinkTags(text)
+      .replace(/```[a-z]*\n?/g, "")
+      .replace(/\n?```/g, "")
+      .trim();
   } catch (error) {
     console.error("Error converting PSeInt with Groq:", error);
     throw error;
@@ -165,8 +169,14 @@ export async function* explainCodeGroq(
     max_tokens: 1024,
   });
 
+  const filter = new ThinkStreamFilter();
   for await (const chunk of stream) {
     const delta = chunk.choices[0]?.delta?.content ?? "";
-    if (delta) yield delta;
+    if (delta) {
+      const visible = filter.feed(delta);
+      if (visible) yield visible;
+    }
   }
+  const tail = filter.flush();
+  if (tail) yield tail;
 }

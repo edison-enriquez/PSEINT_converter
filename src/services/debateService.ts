@@ -7,6 +7,7 @@
 
 import Groq from "groq-sdk";
 import { GROQ_MODEL } from "./groqService";
+import { ThinkStreamFilter } from "./modelUtils";
 import type { TargetLanguage } from "./geminiService";
 import type { TestResult } from "./codeRunnerService";
 
@@ -132,6 +133,8 @@ export async function* runBugDebate(
 
   // ── Ronda 1: Agente Alfa — Debugger ──────────────────────────────────────
   let alfaContent = "";
+  let alfaVisible = "";
+  const alfaFilter = new ThinkStreamFilter();
   yield { id: "alfa-r1", agent: "debugger", round: 1, content: "", isStreaming: true };
 
   const alfaStream = await groq.chat.completions.create({
@@ -152,26 +155,27 @@ export async function* runBugDebate(
     const delta = chunk.choices[0]?.delta?.content ?? "";
     if (delta) {
       alfaContent += delta;
-      yield {
-        id: "alfa-r1",
-        agent: "debugger",
-        round: 1,
-        content: alfaContent,
-        isStreaming: true,
-      };
+      const visible = alfaFilter.feed(delta);
+      if (visible) {
+        alfaVisible += visible;
+        yield { id: "alfa-r1", agent: "debugger", round: 1, content: alfaVisible, isStreaming: true };
+      }
     }
   }
+  alfaVisible += alfaFilter.flush();
   yield {
     id: "alfa-r1",
     agent: "debugger",
     round: 1,
-    content: alfaContent,
+    content: alfaVisible,
     isStreaming: false,
     proposedCode: extractProposedCode(alfaContent),
   };
 
   // ── Ronda 2: Agente Beta — Arquitecto ────────────────────────────────────
   let betaContent = "";
+  let betaVisible = "";
+  const betaFilter = new ThinkStreamFilter();
   yield { id: "beta-r2", agent: "architect", round: 2, content: "", isStreaming: true };
 
   const betaStream = await groq.chat.completions.create({
@@ -180,7 +184,7 @@ export async function* runBugDebate(
       { role: "system", content: ARCHITECT_SYSTEM },
       {
         role: "user",
-        content: buildArchitectPrompt(language, alfaContent, failedTests),
+        content: buildArchitectPrompt(language, alfaVisible, failedTests),
       },
     ],
     stream: true,
@@ -192,26 +196,27 @@ export async function* runBugDebate(
     const delta = chunk.choices[0]?.delta?.content ?? "";
     if (delta) {
       betaContent += delta;
-      yield {
-        id: "beta-r2",
-        agent: "architect",
-        round: 2,
-        content: betaContent,
-        isStreaming: true,
-      };
+      const visible = betaFilter.feed(delta);
+      if (visible) {
+        betaVisible += visible;
+        yield { id: "beta-r2", agent: "architect", round: 2, content: betaVisible, isStreaming: true };
+      }
     }
   }
+  betaVisible += betaFilter.flush();
   yield {
     id: "beta-r2",
     agent: "architect",
     round: 2,
-    content: betaContent,
+    content: betaVisible,
     isStreaming: false,
     proposedCode: extractProposedCode(betaContent),
   };
 
   // ── Ronda 3: Consenso ─────────────────────────────────────────────────────
   let consensusContent = "";
+  let consensusVisible = "";
+  const consensusFilter = new ThinkStreamFilter();
   yield { id: "consensus", agent: "consensus", round: 3, content: "", isStreaming: true };
 
   const consensusStream = await groq.chat.completions.create({
@@ -220,7 +225,7 @@ export async function* runBugDebate(
       { role: "system", content: CONSENSUS_SYSTEM },
       {
         role: "user",
-        content: buildConsensusPrompt(language, alfaContent, betaContent),
+        content: buildConsensusPrompt(language, alfaVisible, betaVisible),
       },
     ],
     stream: true,
@@ -232,20 +237,19 @@ export async function* runBugDebate(
     const delta = chunk.choices[0]?.delta?.content ?? "";
     if (delta) {
       consensusContent += delta;
-      yield {
-        id: "consensus",
-        agent: "consensus",
-        round: 3,
-        content: consensusContent,
-        isStreaming: true,
-      };
+      const visible = consensusFilter.feed(delta);
+      if (visible) {
+        consensusVisible += visible;
+        yield { id: "consensus", agent: "consensus", round: 3, content: consensusVisible, isStreaming: true };
+      }
     }
   }
+  consensusVisible += consensusFilter.flush();
   yield {
     id: "consensus",
     agent: "consensus",
     round: 3,
-    content: consensusContent,
+    content: consensusVisible,
     isStreaming: false,
     proposedCode: extractProposedCode(consensusContent),
   };
