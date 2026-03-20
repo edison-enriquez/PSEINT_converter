@@ -929,9 +929,9 @@ export default function App() {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 py-4 sm:py-8">
-        <div className={cn("flex flex-col lg:grid lg:grid-cols-2 gap-6", !showExplainer && "lg:h-[calc(100vh-10rem)]")}>
+        <div className={cn("flex flex-col lg:grid lg:grid-cols-2 gap-6", !(showExplainer || showRunner || showAgent || showDebate || showCleanCode) && "lg:h-[calc(100vh-10rem)]")}>
           {/* Input Section */}
-          <section className="flex flex-col gap-3 h-[400px] sm:h-[500px] lg:h-full">
+          <section className="flex flex-col gap-3 h-[400px] sm:h-[500px] lg:h-full overflow-hidden">
             <div className="flex items-center justify-between px-2">
               <div className="flex items-center gap-2 text-slate-400">
                 <Terminal className="w-4 h-4" />
@@ -989,7 +989,7 @@ export default function App() {
           </section>
 
           {/* Output Section */}
-          <section className="flex flex-col gap-3 h-[400px] sm:h-[500px] lg:h-full">
+          <section className="flex flex-col gap-3 h-[400px] sm:h-[500px] lg:h-full overflow-hidden">
             <div className="flex items-center justify-between px-2">
               <div className="flex items-center gap-2 text-slate-400">
                 <Code2 className="w-4 h-4" />
@@ -1124,7 +1124,7 @@ export default function App() {
                 </div>
               )}
             </div>
-            <div className="flex-1 bg-[#0d1117] border border-white/5 rounded-2xl overflow-hidden relative min-h-0">
+            <div className="flex-1 bg-[#0d1117] border border-white/5 rounded-2xl overflow-auto custom-scrollbar relative min-h-0">
                 {/* Removed AnimatePresence */}
                 {!output && !loading && !error ? (
                   <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-600 p-8 text-center">
