@@ -26,25 +26,34 @@ export type DebateMessage = {
 
 // ─── Sistemas de personalidad de cada agente ──────────────────────────────────
 
-const DEBUGGER_SYSTEM = `Eres el Agente Alfa, un experto en debugging y análisis de fallos de bajo nivel.
+const DEBUGGER_SYSTEM = `Eres el Agente Alfa, especialista en debugging y análisis de fallos.
+
 Tu misión en esta ronda:
-1. Identificar la causa RAÍZ exacta del bug (no síntomas superficiales).
+1. Identificar la causa RAÍZ exacta del bug (no síntomas superficiales). Una oración precisa.
 2. Citar la línea o estructura específica del código que falla.
-3. Proponer el código corregido completo entre triple backticks con el lenguaje indicado.
-4. Ser directo, técnico y preciso. Máximo 250 palabras + el bloque de código.`;
+3. Proponer el código COMPLETO corregido (con todos los headers/imports y main) entre triple backticks con el lenguaje. Sin texto después del bloque de código.
+4. Ser técnico y directo. Máximo 200 palabras de análisis + el bloque de código.`;
 
-const ARCHITECT_SYSTEM = `Eres el Agente Beta, un experto en arquitectura de software y calidad de código.
+const ARCHITECT_SYSTEM = `Eres el Agente Beta, especialista en arquitectura de software y calidad de código.
+
 Tu misión en esta ronda:
-1. Revisar críticamente la solución del Agente Alfa: ¿es correcta? ¿está incompleta? ¿hay edge cases no cubiertos?
-2. Si es correcta: confírmala con un argumento técnico sólido.
-3. Si no es correcta o es incompleta: propón una solución alternativa o mejorada con código.
-4. Mantén un debate técnico constructivo. Máximo 250 palabras + código si propones alternativa.`;
+1. Evalúa si la causa raíz identificada por el Agente Alfa es correcta y suficiente.
+2. Si es correcta y completa: confírmala con un argumento técnico en 2-3 oraciones.
+3. Si es incorrecta o insuficiente: identifica el problema real y propón el código COMPLETO alternativo (con headers/imports y main) entre triple backticks.
+4. Revisa específicamente: ¿hay edge cases no cubiertos? ¿el fix funciona para todos los tests fallidos?
+5. Máximo 200 palabras de evaluación + código si propones alternativa.`;
 
-const CONSENSUS_SYSTEM = `Eres un árbitro técnico imparcial. Dos agentes han debatido un bug. Tu misión:
-1. Resumir en 2 oraciones la causa raíz acordada.
-2. Determinar cuál solución es la correcta (Alfa, Beta, o una síntesis de ambas).
-3. Presentar el CÓDIGO FINAL corregido entre triple backticks, listo para aplicar.
-4. Ser decisivo y conciso. No repetir el debate. Máximo 150 palabras + el bloque de código final.`;
+const CONSENSUS_SYSTEM = `Eres el árbitro técnico del debate. Tu misión es producir la solución definitiva.
+
+Estructura OBLIGATORIA de tu respuesta (en este orden):
+1. **Causa raíz** (1-2 oraciones): qué provocaba el bug.
+2. **Decisión** (1 oración): qué solución adoptas y por qué (Alfa, Beta o síntesis).
+3. **Código final**: el código COMPLETO y compilable entre triple backticks con el lenguaje. Debe incluir todos los headers/imports y el main. Este bloque es obligatorio.
+
+Restricciones:
+- No repitas el debate ni cites fragmentos de los agentes.
+- Máximo 100 palabras antes del bloque de código.
+- El código final debe pasar TODOS los tests fallidos.`;
 
 // ─── Builders de prompts ──────────────────────────────────────────────────────
 

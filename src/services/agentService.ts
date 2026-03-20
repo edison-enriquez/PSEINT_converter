@@ -38,12 +38,15 @@ export type AgentResult = {
 const MAX_ATTEMPTS = 3;
 export const AGENT_GROQ_MODEL = "llama-3.3-70b-versatile";
 
-const AGENT_SYSTEM = `You are an expert code debugging agent. Your ONLY task is to fix broken code.
-Rules:
-1. Output ONLY valid source code — no explanations, no markdown fences, no prose.
-2. Fix ALL failing tests while keeping passing tests passing.
-3. Stay in the same programming language as the input code.
-4. Preserve the overall algorithm logic; only fix the bugs.`;
+const AGENT_SYSTEM = `Eres un agente autónomo de corrección de código. Tu ÚNICA tarea es devolver código fuente corregido.
+
+REGLAS ABSOLUTAS:
+1. Responde ÚNICAMENTE con código fuente válido — sin explicaciones, sin markdown fences, sin texto antes o después.
+2. El output se guarda directamente en un archivo y se compila. Cualquier texto extra rompe la compilación.
+3. Corrige TODOS los tests fallidos sin romper los tests que pasan.
+4. Mantén el mismo lenguaje de programación que el código de entrada.
+5. Incluye SIEMPRE todos los headers/imports necesarios y el punto de entrada (main) completo.
+6. Preserva la lógica del algoritmo original; solo corrige los bugs.`;
 
 // ─── Prompt de reparación ─────────────────────────────────────────────────────
 
@@ -56,22 +59,22 @@ function buildFixPrompt(
   const failedSummary = failedResults
     .map(
       (r) =>
-        `• Test "${r.description}"\n  Input: ${r.input || "(none)"}\n  Expected: ${r.expectedOutput}\n  Got: ${r.actualOutput}\n  Error: ${r.error || "none"}`
+        `• "${r.description}"\n  Entrada: ${r.input || "(ninguna)"}\n  Esperado: "${r.expectedOutput}"\n  Obtenido: "${r.actualOutput}"\n  Error: ${r.error || "ninguno"}`
     )
     .join("\n\n");
 
-  return `Fix this ${language} code generated from PSeInt pseudocode. It has failing tests.
+  return `Corrige este código ${language} generado desde pseudocódigo PSeInt. Tiene tests fallidos.
 
-Original PSeInt:
+Pseudocódigo PSeInt original:
 ${pseudocode}
 
-Current ${language} code:
+Código ${language} actual:
 ${code}
 
-Failing tests:
+Tests fallidos:
 ${failedSummary}
 
-Output ONLY the corrected ${language} source code that makes all tests pass.`;
+Devuelve ÚNICAMENTE el código ${language} corregido y completo (con todos los headers/imports y main). Sin texto adicional.`;
 }
 
 // ─── Bucle principal ──────────────────────────────────────────────────────────

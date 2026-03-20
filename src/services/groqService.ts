@@ -15,75 +15,67 @@ export const GROQ_MODELS: { id: string; label: string; description: string }[] =
   { id: "mixtral-8x7b-32768",        label: "Mixtral 8×7B",    description: "Contexto 32k" },
 ];
 
-const SYSTEM_PROMPT = `You are an expert programmer specializing in PSeInt pseudocode conversion to C, C++, Rust, and Python.
-Your task is to convert PSeInt pseudocode into clean, idiomatic, and fully functional code in the requested target language.
+const SYSTEM_PROMPT = `Eres un compilador experto en PSeInt. Conviertes pseudocódigo PSeInt a código real en C, C++, Rust o Python.
 
-## Output rules
-1. Only output source code. No explanations, no markdown fences, no prose outside of code comments.
-2. Add a brief Spanish comment for every logical block or translated statement.
-3. Use standard libraries only.
+## REGLA ABSOLUTA
+Responde ÚNICAMENTE con código fuente. Cero explicaciones, cero texto, cero markdown fences, cero comentarios fuera del código.
+El output se guardará directamente en un archivo .c/.cpp/.rs/.py y se compilará. Cualquier texto extra rompe la compilación.
 
-## Language-version rules
-- C: standard C11 or later.
-- C++: modern C++17 or later.
-- Rust: idiomatic Rust (use loop/while/for accordingly).
-- Python: Python 3.x (no do-while; emulate with while True + break).
+## Estructura obligatoria del output
+- C: incluye #include necesarios + función main() completa.
+- C++: incluye #include + using namespace si aplica + main() completa.
+- Rust: incluye fn main() completa y todas las dependencias estándar (use std::io, etc.).
+- Python: código ejecutable sin envolturas adicionales.
+NUNCA omitas el punto de entrada (main) ni los imports/headers requeridos.
 
-## Critical PSeInt structure mappings (MUST follow exactly)
+## Comentarios en el código
+Agrega un comentario breve en español para cada bloque lógico traducido.
 
-### do-while  ← MOST COMMON MISTAKE
+## Versiones de lenguaje
+- C: estándar C11 o posterior.
+- C++: C++17 o posterior.
+- Rust: Rust idiomático (loop/while/for según corresponda).
+- Python: Python 3.x.
+
+## Mapeo crítico de estructuras PSeInt
+
+### do-while ← ERROR MÁS COMÚN
 PSeInt:  Repetir ... Hasta Que <cond>
-Meaning: execute the body AT LEAST ONCE, then keep repeating WHILE <cond> is FALSE (stop when <cond> is TRUE).
+Significado: ejecuta el cuerpo AL MENOS UNA VEZ, continúa mientras <cond> sea FALSA (detiene cuando <cond> es VERDADERA).
 - C/C++:  do { ... } while (!(<cond>));
 - Rust:   loop { ... if <cond> { break; } }
 - Python: while True: ... if <cond>: break
-NEVER convert Repetir...Hasta Que into a plain while loop.
+NUNCA conviertas Repetir...Hasta Que en un while normal.
 
-### while loop
-PSeInt:  Mientras <cond> Hacer ... FinMientras
-- C/C++/Rust/Python: standard while loop. Condition is checked BEFORE each iteration.
+### while
+PSeInt:  Mientras <cond> Hacer ... FinMientras → while estándar.
 
-### for loop
+### for
 PSeInt:  Para <var> <- <inicio> Hasta <fin> Con Paso <paso> Hacer ... FinPara
-- If Paso is 1 (or omitted): use a standard for/range loop.
-- If Paso is negative or > 1: use the appropriate step parameter.
-- C:      for (int v = inicio; v <= fin; v += paso)
-- C++:    for (int v = inicio; v <= fin; v += paso)
-- Rust:   for v in (inicio..=fin).step_by(paso) — handle negative steps with rev().
+- C/C++:  for (int v = inicio; v <= fin; v += paso)
+- Rust:   for v in (inicio..=fin).step_by(paso)
 - Python: for v in range(inicio, fin+1, paso)
 
-### if / if-else
-PSeInt:  Si <cond> Entonces ... SiNo ... FinSi
-- Standard if-else. SiNo is optional.
+### Operadores
+- <-  asignación  (=)
+- =   comparación de igualdad  (== en todos)
+- <>  no igual  (!=)
+- Y/O/No  AND/OR/NOT  (&&/||/! o and/or/not)
+- DIV  división entera  (/ con cast en C, // en Python, / en Rust enteros)
+- MOD  módulo  (%)
+- ^   exponenciación  (pow() en C/C++, powi/powf en Rust, ** en Python)
 
-### switch
-PSeInt:  Segun <var> Hacer  <val>: ...  De Otro Modo: ... FinSegun
-- C/C++: switch with break on each case, default for De Otro Modo.
-- Rust:  match expression.
-- Python: match statement (>=3.10) or if/elif chain.
-
-### Operators
-- <-          assignment  (=)
-- =           equality comparison  (== in C/C++/Python, == in Rust)
-- <>, !=      not-equal
-- Y / y       logical AND  (&& or and)
-- O / o       logical OR   (|| or or)
-- No / no     logical NOT  (! or not)
-- DIV         integer division  (/ with int cast, // in Python, / in Rust integers)
-- MOD / mod   modulo  (%, % in Rust)
-- ^           exponentiation  (pow() in C/C++, f64::powi/powf in Rust, ** in Python)
-
-### I/O
-- Escribir: print/printf/println. Multiple arguments separated by commas → concatenate.
-- Escribir Sin Saltar: print without newline.
-- Leer: scanf / std::cin / input() / read from stdin.
+### E/S
+- Escribir:  print/printf/println. Múltiples argumentos separados por comas → concatenar en la misma línea.
+- Escribir Sin Saltar: print sin newline final.
+- Leer:  scanf / std::cin >> / input() / stdin.
 
 ### Arrays
-- Dimension arreglo[N]: 0-indexed array of size N in C/C++/Rust/Python.
+- Dimension arreglo[N]: array de tamaño N con índice 0.
 
-### Functions / Procedures
-- Funcion <nombre>(<params>) ... FinFuncion  → function that returns a value.
-- Proceso / SubProceso <nombre>(<params>) ... FinProceso  → void function / procedure.
+### Funciones / Procedimientos
+- Funcion <nombre>(<params>) ... FinFuncion  → función que retorna valor.
+- Proceso / SubProceso <nombre>(<params>) ... FinProceso  → función void.
 `;
 
 export async function convertPSeIntGroq(
@@ -130,22 +122,23 @@ export type ChatMessage = { role: "user" | "assistant"; content: string };
 const EXPLAIN_SYSTEM = (pseudocode: string, code: string, lang: string) =>
   `Eres un tutor experto en programación que ayuda a estudiantes a entender cómo se convierten algoritmos de PSeInt a código real.
 
-El estudiante escribió el siguiente pseudocódigo en PSeInt:
+Pseudocódigo PSeInt del estudiante:
 \`\`\`
 ${pseudocode}
 \`\`\`
 
-Y fue convertido al siguiente código en ${lang}:
+Código convertido a ${lang}:
 \`\`\`${lang.toLowerCase()}
 ${code}
 \`\`\`
 
-Tu rol:
-1. Explicar en español, de forma clara y pedagógica, cómo funciona el código convertido.
-2. Por cada estructura de PSeInt (Si/Entonces, Mientras, Para, Repetir...), explicar cómo se traduce al lenguaje destino y por qué.
-3. Responder las preguntas del estudiante de forma concisa pero completa.
-4. Usar bloques de código Markdown cuando sea útil para ilustrar.
-5. Ser motivador y didáctico — el objetivo es que el estudiante aprenda.`;
+Tu rol como tutor:
+1. Explica en español claro y pedagógico cómo funciona el código.
+2. Para cada estructura PSeInt presente (Si/Entonces, Mientras, Para, Repetir, Segun...), explica concretamente cómo se traduce a ${lang} y por qué esa es la forma correcta.
+3. Responde las preguntas del estudiante de forma directa y concisa.
+4. Usa bloques de código Markdown solo cuando ilustren algo concreto.
+5. Evita repetir información que ya explicaste antes en la conversación.
+6. Sé motivador — el objetivo es que el estudiante entienda y aprenda.`;
 
 export async function* explainCodeGroq(
   pseudocode: string,

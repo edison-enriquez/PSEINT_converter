@@ -15,35 +15,32 @@ const envApiKey = process.env.GEMINI_API_KEY;
 // ─── Prompt ──────────────────────────────────────────────────────────────────
 
 function buildPrompt(pseudocode: string, code: string, lang: string): string {
-  return `Eres un experto en testing de algoritmos educativos.
+  return `Genera exactamente 5 casos de prueba para este programa ${lang}.
 
-Se te proporciona el siguiente pseudocódigo PSeInt:
+Pseudocódigo PSeInt:
 \`\`\`
 ${pseudocode}
 \`\`\`
 
-Y su traducción a ${lang}:
+Código ${lang}:
 \`\`\`${lang.toLowerCase()}
 ${code}
 \`\`\`
 
-Genera exactamente 5 casos de prueba que cubran de forma exhaustiva:
-1. Caso típico / básico
-2. Valor mínimo o cero
-3. Valor máximo o grande
-4. Valor negativo (si el algoritmo lo admite) o un segundo caso típico diferente
-5. Edge case problemático (entrada límite, división, bucle con 0 iteraciones, etc.)
+REGLAS PARA LOS CASOS DE PRUEBA:
+1. Tipo básico/normal — entrada representativa.
+2. Valor mínimo o cero.
+3. Valor máximo o entrada grande.
+4. Valor negativo (si el algoritmo lo admite) o segundo caso normal diferente.
+5. Edge case — límite, división por cero protegida, bucle con 0 iteraciones, etc.
 
-REGLAS ESTRICTAS:
-- Responde ÚNICAMENTE con un array JSON válido. Sin explicaciones, sin markdown, sin texto adicional.
-- "input": valores de entrada separados por \\n, uno por cada instrucción Leer del pseudocódigo. Si no hay Leer, usar "".
-- "expectedOutput": TODA la salida que el programa escribe en stdout, línea a línea, en orden exacto.
-  Esto incluye: los mensajes de Escribir usados como prompts ("Ingrese el valor:", etc.) Y los resultados finales.
-  Cada instrucción Escribir genera una línea en stdout, independientemente de si es un prompt o un resultado.
-  Usa \\n para separar líneas. SIN newline final extra.
-- NUNCA omitas las líneas de prompt (Escribir antes de un Leer). El programa las imprime y el comparador las verifica.
-- Simula la ejecución completa del programa con los inputs dados y escribe la salida exacta caracter a caracter.
-- Sé preciso: los tests se comparan automáticamente con la salida real del programa.
+FORMATO DE SALIDA — REGLAS CRÍTICAS:
+- Responde ÚNICAMENTE con el array JSON. Sin explicaciones, sin markdown fences, sin texto fuera del JSON.
+- "input": los valores que el usuario ingresaría, uno por instrucción Leer, separados por \\n. Si no hay Leer, usar "".
+- "expectedOutput": TODA la salida que el programa imprime en stdout, incluyendo los mensajes de prompt (Escribir antes de Leer) y los resultados. Cada Escribir genera una línea. Usa \\n entre líneas. SIN newline final.
+- SIMULA la ejecución completa: traza el programa paso a paso con los inputs dados y escribe exactamente lo que imprimiría.
+- NUNCA omitas líneas de prompt. Si el pseudocódigo dice Escribir "Ingrese valor:", esa línea APARECE en expectedOutput.
+- Los tests se comparan automáticamente caracter a caracter — sé preciso.
 
 Formato requerido:
 [
@@ -51,7 +48,7 @@ Formato requerido:
     "id": "tc1",
     "description": "Descripción breve en español",
     "input": "valor1\\nvalor2",
-    "expectedOutput": "La salida exacta"
+    "expectedOutput": "Línea 1\\nLínea 2"
   }
 ]`;
 }
@@ -125,31 +122,23 @@ function buildFailPrompt(
   tc: TestCase,
   actualOutput: string
 ): string {
-  return `Eres un tutor de programación. Un estudiante tiene el siguiente código en ${lang}:
+  return `Eres un tutor de programación. Explica por qué un test falló.
+
+Código ${lang}:
 \`\`\`${lang.toLowerCase()}
 ${code}
 \`\`\`
 
-Se ejecutó con la siguiente entrada:
-\`\`\`
-${tc.input || "(sin entrada)"}
-\`\`\`
+Entrada usada: ${tc.input ? `\`${tc.input}\`` : "(ninguna)"}
+Salida esperada: \`${tc.expectedOutput}\`
+Salida obtenida: \`${actualOutput}\`
 
-Se esperaba esta salida:
-\`\`\`
-${tc.expectedOutput}
-\`\`\`
-
-Pero el programa produjo:
-\`\`\`
-${actualOutput}
-\`\`\`
-
-Explica en español, de forma breve (máximo 4 oraciones):
-1. Por qué la salida obtenida difiere de la esperada.
-2. Qué parte del código podría estar causando esto.
+Responde en español con exactamente 3 puntos (máximo 3 oraciones en total):
+1. Por qué difieren las salidas.
+2. Qué línea o estructura del código lo causa.
 3. Cómo corregirlo.
-No repitas el código completo. Sé directo y pedagógico.`;
+
+No repitas el código completo. No uses más de 3 oraciones. Sé directo.`;
 }
 
 export async function* explainFailedTestGroq(

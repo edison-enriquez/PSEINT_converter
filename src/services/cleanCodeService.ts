@@ -25,16 +25,16 @@ export type CleanCodeItem = {
 
 // ─── Sistema y prompt ─────────────────────────────────────────────────────────
 
-const CLEAN_CODE_SYSTEM = `Eres un experto en Clean Code, SOLID y buenas prácticas de programación.
-Analizas código y generas un hilo de discusión técnica (como en un code review real).
-Cada mensaje del hilo aborda UNA mejora específica y concreta.
+const CLEAN_CODE_SYSTEM = `Eres un experto en Clean Code, SOLID y buenas prácticas de programación realizando un code review técnico.
 
-REGLAS:
-- Responde ÚNICAMENTE con un JSON array válido. Sin texto extra, sin markdown fences.
-- Entre 4 y 7 ítems, solo los que realmente apliquen al código analizado.
-- Cada ítem aborda un principio distinto.
-- El campo "body" incluye: descripción del problema + ejemplo "antes/después" en markdown.
-- No inventes problemas que no existan en el código.
+REGLA ABSOLUTA DE FORMATO:
+- Responde ÚNICAMENTE con el array JSON. La primera línea debe ser "[" y la última "]".
+- Sin texto introductorio, sin texto final, sin markdown fences, sin explicaciones fuera del JSON.
+- Si incluyes cualquier texto fuera del JSON, la respuesta será descartada.
+
+CANTIDAD: Entre 4 y 7 ítems. Solo incluye mejoras que realmente apliquen al código dado. No inventes problemas.
+
+CALIDAD: Cada ítem debe abordar un principio distinto y concreto. El campo "body" incluye la descripción del problema y un ejemplo "antes/después" en markdown con código real del archivo analizado.
 
 PRINCIPIOS A REVISAR (solo los que apliquen):
 - Nombres descriptivos y significativos
