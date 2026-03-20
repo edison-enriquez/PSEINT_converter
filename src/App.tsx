@@ -119,15 +119,19 @@ FinAlgoritmo`;
 
 type ModelType = "gemini" | "groq";
 
-type EnabledModels = { gemini: boolean; agents: boolean };
+type EnabledModels = { gemini: boolean; agents: boolean; suggestFix: boolean };
 
 function loadEnabledModels(): EnabledModels {
   try {
     const raw = localStorage.getItem("enabled_models");
-    if (raw) return JSON.parse(raw) as EnabledModels;
+    if (raw) {
+      const parsed = JSON.parse(raw) as EnabledModels;
+      // Garantizar que suggestFix exista (clave nueva) sin borrar el resto
+      return { suggestFix: false, ...parsed };
+    }
   } catch { /* ignore */ }
-  // Por defecto solo Groq activo; Gemini y Agentes desactivados
-  return { gemini: false, agents: false };
+  // Por defecto solo Groq activo; Gemini, Agentes y Sugerir corrección desactivados
+  return { gemini: false, agents: false, suggestFix: false };
 }
 
 export default function App() {
@@ -863,6 +867,26 @@ export default function App() {
                             <div className={cn("absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all", enabledModels.agents ? "right-0.5" : "left-0.5")} />
                           </div>
                         </button>
+
+                        {/* Sugerir corrección */}
+                        <button
+                          onClick={() => toggleModel("suggestFix")}
+                          className={cn(
+                            "w-full flex items-center gap-3 px-3 py-2.5 rounded-xl border transition-all text-left mt-1",
+                            enabledModels.suggestFix ? "bg-violet-500/5 border-violet-500/10" : "bg-white/[0.02] border-white/5 hover:bg-white/5"
+                          )}
+                        >
+                          <div className={cn("w-7 h-7 rounded-lg flex items-center justify-center shrink-0", enabledModels.suggestFix ? "bg-violet-500/10" : "bg-white/5")}>
+                            <Wrench className={cn("w-3.5 h-3.5", enabledModels.suggestFix ? "text-violet-400" : "text-slate-500")} />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className={cn("text-xs font-semibold", enabledModels.suggestFix ? "text-slate-100" : "text-slate-500")}>Sugerir corrección</p>
+                            <p className="text-[10px] text-slate-600 truncate">Corrección automática por test fallido</p>
+                          </div>
+                          <div className={cn("w-9 h-5 rounded-full relative shrink-0 transition-colors", enabledModels.suggestFix ? "bg-violet-500" : "bg-white/10")}>
+                            <div className={cn("absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all", enabledModels.suggestFix ? "right-0.5" : "left-0.5")} />
+                          </div>
+                        </button>
                       </div>
                     </div>
                   </div>
@@ -1488,7 +1512,7 @@ export default function App() {
                               )}
 
                               {/* ── Sugerir corrección por prueba ── */}
-                              {(tr.status === "fail" || tr.status === "error") && groqApiKey && (
+                              {(tr.status === "fail" || tr.status === "error") && groqApiKey && enabledModels.suggestFix && (
                                 <div>
                                   {/* Botón sugerir */}
                                   {!testSuggestions[tr.id] && (
