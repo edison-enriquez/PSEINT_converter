@@ -14,7 +14,9 @@ const envApiKey = process.env.GEMINI_API_KEY;
 
 // ─── Prompt ──────────────────────────────────────────────────────────────────
 
-function buildPrompt(pseudocode: string, code: string, lang: string): string {
+// ─── Prompt sin enunciado — tests derivados del código (modo validación) ──────
+
+function buildCodeBasedPrompt(pseudocode: string, code: string, lang: string): string {
   return `Genera exactamente 5 casos de prueba para este programa ${lang}.
 
 Pseudocódigo PSeInt:
@@ -38,9 +40,9 @@ FORMATO DE SALIDA — REGLAS CRÍTICAS:
 - Responde ÚNICAMENTE con el array JSON. Sin explicaciones, sin markdown fences, sin texto fuera del JSON.
 - "input": los valores que el usuario ingresaría, uno por instrucción Leer, separados por \\n. Si no hay Leer, usar "".
 - "expectedOutput": TODA la salida que el programa imprime en stdout, incluyendo los mensajes de prompt (Escribir antes de Leer) y los resultados. Cada Escribir genera una línea. Usa \\n entre líneas. SIN newline final.
-- SIMULA la ejecución completa: traza el programa paso a paso con los inputs dados y escribe exactamente lo que imprimiría.
-- NUNCA omitas líneas de prompt. Si el pseudocódigo dice Escribir "Ingrese valor:", esa línea APARECE en expectedOutput.
-- Los tests se comparan automáticamente caracter a caracter — sé preciso.
+- SIMULA la ejecución completa paso a paso y escribe exactamente lo que imprimiría.
+- NUNCA omitas líneas de prompt como "Ingrese valor:".
+- Los tests se comparan caracter a caracter — sé preciso.
 
 Formato requerido:
 [
@@ -51,6 +53,79 @@ Formato requerido:
     "expectedOutput": "Línea 1\\nLínea 2"
   }
 ]`;
+}
+
+// ─── Prompt con enunciado — tests derivados de REQUISITOS (modo cobertura) ────
+// NO usa el código convertido para derivar expectedOutput.
+// El código solo se muestra para conocer el formato exacto de I/O (mensajes Leer/Escribir).
+
+function buildRequirementsBasedPrompt(pseudocode: string, code: string, lang: string, problemStatement: string, criticalAnalysis?: string): string {
+  const testCount = criticalAnalysis?.trim() ? 8 : 7;
+  const analysisSection = criticalAnalysis?.trim()
+    ? `\nPuntos críticos extraídos del enunciado:\n${criticalAnalysis.trim()}\n`
+    : "";
+
+  const structureRules = criticalAnalysis?.trim()
+    ? `ESTRUCTURA OBLIGATORIA — ${testCount} tests en este orden:
+1-2. FLUJO NORMAL — entradas que el enunciado describe como válidas y correctas.
+3-5. REGLAS DEL ENUNCIADO — un test por cada restricción o condición especial (una entrada que active cada regla, con el output que el enunciado exige).
+6-7. CASOS LÍMITE — valores en los bordes de las restricciones del enunciado.
+8.   CASO EXTREMO — combinación no trivial de condiciones del enunciado.`
+    : `ESTRUCTURA OBLIGATORIA — ${testCount} tests en este orden:
+1-2. FLUJO NORMAL — entradas válidas representativas del enunciado.
+3-5. REGLAS DEL ENUNCIADO — un test por cada condición, restricción o comportamiento especial descrito explícitamente en el enunciado.
+6-7. CASOS LÍMITE — valores en los bordes de las restricciones del enunciado.`;
+
+  return `Eres un evaluador académico. Tu tarea es generar ${testCount} casos de prueba que verifiquen si un programa cumple con los REQUISITOS del enunciado.
+
+ENUNCIADO DEL PROBLEMA (fuente de verdad para los tests):
+${problemStatement.trim()}
+${analysisSection}
+PSEUDOCÓDIGO (solo para entender el formato de I/O: qué pide al usuario y qué imprime):
+\`\`\`
+${pseudocode}
+\`\`\`
+
+CÓDIGO ${lang.toUpperCase()} (referencia de formato de I/O ÚNICAMENTE — NO uses su lógica para calcular expectedOutput):
+\`\`\`${lang.toLowerCase()}
+${code}
+\`\`\`
+
+${structureRules}
+
+REGLAS CRÍTICAS PARA CALCULAR expectedOutput:
+1. El "expectedOutput" refleja lo que un programa CORRECTO que cumple el enunciado debe imprimir.
+2. IGNORA si el código actual haría algo diferente — estás probando si el código cumple el enunciado.
+3. Para cada restricción del enunciado (ej. "números negativos deben dar error"), crea un test con input que active esa restricción y expectedOutput con el mensaje de error que exige el enunciado.
+4. Usa el pseudocódigo para saber qué texto de prompt imprime el programa antes de cada Leer (ej. "Ingrese número:") e inclúyelo en expectedOutput.
+5. TRAZA manualmente: para cada input, simula paso a paso qué imprimiría un programa CORRECTO.
+6. Si el enunciado no especifica el texto exacto del mensaje de error, usa el texto del pseudocódigo.
+
+COBERTURA OBLIGATORIA: Cada restricción o comportamiento especial del enunciado debe tener AL MENOS un test que lo active. No omitas ninguna regla.
+
+FORMATO DE SALIDA:
+- Responde ÚNICAMENTE con el array JSON. Sin explicaciones, sin markdown fences.
+- "input": valores separados por \\n, uno por instrucción Leer del pseudocódigo.
+- "expectedOutput": salida completa del programa correcto, líneas separadas por \\n, SIN newline final.
+- Los tests se comparan automáticamente caracter a caracter.
+
+[
+  {
+    "id": "tc1",
+    "description": "Descripción breve que mencione qué requisito verifica",
+    "input": "valor1\\nvalor2",
+    "expectedOutput": "Ingrese número:\\nResultado: 5"
+  }
+]`;
+}
+
+// ─── Selector de prompt ───────────────────────────────────────────────────────
+
+function buildPrompt(pseudocode: string, code: string, lang: string, problemStatement?: string, criticalAnalysis?: string): string {
+  if (problemStatement?.trim()) {
+    return buildRequirementsBasedPrompt(pseudocode, code, lang, problemStatement, criticalAnalysis);
+  }
+  return buildCodeBasedPrompt(pseudocode, code, lang);
 }
 
 // ─── Parser ───────────────────────────────────────────────────────────────────
@@ -95,7 +170,9 @@ export async function generateTestCasesGroq(
   code: string,
   language: TargetLanguage,
   apiKey: string,
-  model: string = GROQ_MODEL
+  model: string = GROQ_MODEL,
+  problemStatement?: string,
+  criticalAnalysis?: string
 ): Promise<TestCase[]> {
   if (!apiKey) throw new Error("GROQ_API_KEY is not set");
 
@@ -104,7 +181,7 @@ export async function generateTestCasesGroq(
   // Bucle agente: hasta 3 intentos. Si el JSON es inválido, el modelo recibe
   // su propia respuesta y una instrucción de corrección.
   const messages: { role: "user" | "assistant"; content: string }[] = [
-    { role: "user", content: buildPrompt(pseudocode, code, language) },
+    { role: "user", content: buildPrompt(pseudocode, code, language, problemStatement, criticalAnalysis) },
   ];
 
   let lastError: Error = new Error("La IA no devolvió un JSON válido con los casos de prueba");
@@ -149,7 +226,9 @@ export async function generateTestCasesGemini(
   pseudocode: string,
   code: string,
   language: TargetLanguage,
-  apiKey?: string
+  apiKey?: string,
+  problemStatement?: string,
+  criticalAnalysis?: string
 ): Promise<TestCase[]> {
   const key = apiKey || envApiKey;
   if (!key) throw new Error("GEMINI_API_KEY is not set");
@@ -160,8 +239,8 @@ export async function generateTestCasesGemini(
 
   for (let attempt = 1; attempt <= 3; attempt++) {
     const prompt = attempt === 1
-      ? buildPrompt(pseudocode, code, language)
-      : buildPrompt(pseudocode, code, language) +
+      ? buildPrompt(pseudocode, code, language, problemStatement, criticalAnalysis)
+      : buildPrompt(pseudocode, code, language, problemStatement, criticalAnalysis) +
         `\n\nRECUERDA: Responde ÚNICAMENTE con el array JSON. Empieza con "[" y termina con "]". Sin ningún texto adicional.`;
 
     const response = await ai.models.generateContent({
@@ -264,7 +343,8 @@ function buildFixCodePrompt(
   pseudocode: string,
   code: string,
   lang: string,
-  failedTests: TestResult[]
+  failedTests: TestResult[],
+  problemStatement?: string
 ): string {
   const testsDesc = failedTests
     .map(
@@ -272,6 +352,29 @@ function buildFixCodePrompt(
         `[Test ${i + 1}] "${t.description}"\n  Entrada: ${t.input || "(sin entrada)"}\n  Esperado:\n${t.expectedOutput}\n  Obtenido:\n${t.actualOutput || t.error || "(sin salida)"}`
     )
     .join("\n\n");
+
+  if (problemStatement?.trim()) {
+    return `Eres un experto en ${lang}. El programa NO cumple con los requisitos del enunciado — los tests fallan porque el código no implementa correctamente lo que pide el enunciado.
+
+ENUNCIADO DEL PROBLEMA (fuente de verdad — lo que el código DEBE hacer):
+${problemStatement.trim()}
+
+Pseudocódigo PSeInt (referencia de estructura I/O):
+\`\`\`
+${pseudocode}
+\`\`\`
+
+Código actual que NO cumple el enunciado:
+\`\`\`${lang.toLowerCase()}
+${code}
+\`\`\`
+
+Tests fallidos (expectedOutput derivado del enunciado, no del código):
+${testsDesc}
+
+Corrige el código para que implemente correctamente los requisitos del enunciado y pase todos los tests.
+RESPONDE ÚNICAMENTE con el código corregido en ${lang}. Sin explicaciones, sin markdown, sin bloques de código con triple backtick.`;
+  }
 
   return `Eres un experto en ${lang}. El siguiente programa falla en los casos de prueba indicados.
 
@@ -305,13 +408,14 @@ export async function fixCodeWithTestsGroq(
   language: TargetLanguage,
   failedTests: TestResult[],
   apiKey: string,
-  model: string = GROQ_MODEL
+  model: string = GROQ_MODEL,
+  problemStatement?: string
 ): Promise<string> {
   if (!apiKey) throw new Error("GROQ_API_KEY is not set");
   const groq = new Groq({ apiKey, dangerouslyAllowBrowser: true });
   const completion = await groq.chat.completions.create({
     model,
-    messages: [{ role: "user", content: buildFixCodePrompt(pseudocode, code, language, failedTests) }],
+    messages: [{ role: "user", content: buildFixCodePrompt(pseudocode, code, language, failedTests, problemStatement) }],
     temperature: 0.2,
     max_tokens: 2048,
   });
@@ -324,14 +428,15 @@ export async function fixCodeWithTestsGemini(
   code: string,
   language: TargetLanguage,
   failedTests: TestResult[],
-  apiKey?: string
+  apiKey?: string,
+  problemStatement?: string
 ): Promise<string> {
   const key = apiKey || envApiKey;
   if (!key) throw new Error("GEMINI_API_KEY is not set");
   const ai = new GoogleGenAI({ apiKey: key });
   const response = await ai.models.generateContent({
     model: "gemini-2.0-flash",
-    contents: buildFixCodePrompt(pseudocode, code, language, failedTests),
+    contents: buildFixCodePrompt(pseudocode, code, language, failedTests, problemStatement),
     config: { temperature: 0.2 },
   });
   const text = response.text ?? "";

@@ -5,7 +5,7 @@ import { runCode, TestCase, TestResult, isTestPass, PyodideProgress } from "./se
 import { generateTestCasesGroq, generateTestCasesGemini, explainFailedTestGroq, explainFailedTestGemini, fixCodeWithTestsGroq, fixCodeWithTestsGemini } from "./services/testGenService";
 import { Code2, Copy, Check, Terminal, Languages, RefreshCw, AlertCircle, Sparkles, KeyRound, Eye, EyeOff, Zap, Settings, X, MessageCircle, Send, Bot, User, Play, FlaskConical, CheckCircle2, XCircle, ChevronDown, ChevronRight, Loader, BrainCircuit, Swords, Wand2, ShieldCheck, Scale, Wrench } from "lucide-react";
 import { DiffEditor } from "@monaco-editor/react";
-import { runAgentLoop, type AgentStep, type AgentResult } from "./services/agentService";
+import { runAgentLoop, analyzeStatementForTests, type AgentStep, type AgentResult } from "./services/agentService";
 import { runBugDebate, type DebateMessage } from "./services/debateService";
 import { generateCleanCodeThread, type CleanCodeItem } from "./services/cleanCodeService";
 import { convertAndVerify, type ConvertStep } from "./services/convertService";
@@ -138,6 +138,10 @@ function loadEnabledModels(): EnabledModels {
 export default function App() {
   const [input, setInput] = useState(EXAMPLE_PSEINT);
   const [output, setOutput] = useState("");
+  const [problemStatement, setProblemStatement] = useState("");
+  const [showProblemStatement, setShowProblemStatement] = useState(false);
+  const [criticalPoints, setCriticalPoints] = useState<string | null>(null);
+  const [showCriticalPoints, setShowCriticalPoints] = useState(false);
   const [language, setLanguage] = useState<TargetLanguage>("C");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -300,6 +304,8 @@ export default function App() {
             setShowCleanCode(false);
             setTestSuggestions({});
             setTestSuggestionLoading({});
+            setCriticalPoints(null);
+            setShowCriticalPoints(false);
           }
         }
       }
@@ -398,11 +404,23 @@ export default function App() {
     setGeneratingTests(true);
     setTestCases([]);
     setTestResults([]);
+    setCriticalPoints(null);
+    setShowCriticalPoints(false);
     try {
+      // Si hay enunciado, analizar primero para extraer puntos críticos
+      let analysis: string | undefined;
+      if (problemStatement.trim() && groqApiKey) {
+        try {
+          analysis = await analyzeStatementForTests(input, problemStatement, language, groqApiKey, groqModel);
+          setCriticalPoints(analysis);
+        } catch {
+          // no bloqueante
+        }
+      }
       const cases =
         selectedModel === "gemini"
-          ? await generateTestCasesGemini(input, output, language, geminiApiKey || undefined)
-          : await generateTestCasesGroq(input, output, language, groqApiKey, groqModel);
+          ? await generateTestCasesGemini(input, output, language, geminiApiKey || undefined, problemStatement || undefined, analysis)
+          : await generateTestCasesGroq(input, output, language, groqApiKey, groqModel, problemStatement || undefined, analysis);
       setTestCases(cases);
       setTestResults(cases.map((tc) => ({ ...tc, status: "pending", actualOutput: "" })));
     } catch (err) {
@@ -512,8 +530,8 @@ export default function App() {
     try {
       const fixed =
         selectedModel === "gemini"
-          ? await fixCodeWithTestsGemini(input, output, language, [tr], geminiApiKey || undefined)
-          : await fixCodeWithTestsGroq(input, output, language, [tr], groqApiKey, groqModel);
+          ? await fixCodeWithTestsGemini(input, output, language, [tr], geminiApiKey || undefined, problemStatement || undefined)
+          : await fixCodeWithTestsGroq(input, output, language, [tr], groqApiKey, groqModel, problemStatement || undefined);
       setTestSuggestions((prev) => ({ ...prev, [testId]: fixed }));
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -541,8 +559,7 @@ export default function App() {
       output,
       language,
       groqApiKey,
-      (step) => setAgentSteps((prev) => {
-        // Update the last step of same type, or append new
+      (step) => setAgentSteps((prev) => {        // Update the last step of same type, or append new
         const updated = [...prev];
         let lastIdx = -1;
         for (let k = updated.length - 1; k >= 0; k--) {
@@ -558,7 +575,8 @@ export default function App() {
         }
         return updated;
       }),
-      groqModel
+      groqModel,
+      problemStatement || undefined
     );
 
     setAgentResult(result);
@@ -937,13 +955,47 @@ export default function App() {
                 <Terminal className="w-4 h-4" />
                 <span className="text-[10px] sm:text-xs font-semibold uppercase tracking-wider">Pseudocódigo PSeInt</span>
               </div>
-              <button 
-                onClick={() => setInput("")}
-                className="text-[10px] sm:text-xs text-slate-500 hover:text-indigo-400 transition-colors"
-              >
-                Limpiar
-              </button>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => setShowProblemStatement((v) => !v)}
+                  title="Enunciado del problema"
+                  className={cn(
+                    "flex items-center gap-1 text-[10px] sm:text-xs transition-colors",
+                    showProblemStatement ? "text-amber-400" : "text-slate-500 hover:text-amber-400"
+                  )}
+                >
+                  <Scale className="w-3.5 h-3.5" />
+                  Enunciado
+                </button>
+                <button 
+                  onClick={() => setInput("")}
+                  className="text-[10px] sm:text-xs text-slate-500 hover:text-indigo-400 transition-colors"
+                >
+                  Limpiar
+                </button>
+              </div>
             </div>
+            {/* Problem statement collapsible */}
+            {showProblemStatement && (
+              <div className="relative">
+                <textarea
+                  value={problemStatement}
+                  onChange={(e) => setProblemStatement(e.target.value)}
+                  placeholder="Describe el problema o enunciado aquí. El agente y el generador de pruebas lo tendrán en cuenta para crear casos de prueba más precisos."
+                  rows={4}
+                  className="w-full bg-[#161b22] border border-amber-500/20 rounded-xl px-4 py-3 text-xs text-slate-300 placeholder-slate-600 resize-none outline-none focus:border-amber-500/40 transition-colors leading-relaxed"
+                />
+                {problemStatement && (
+                  <button
+                    onClick={() => setProblemStatement("")}
+                    className="absolute top-2 right-2 w-5 h-5 flex items-center justify-center rounded-md text-slate-500 hover:text-slate-200 hover:bg-white/10 transition-all"
+                    title="Borrar enunciado"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                )}
+              </div>
+            )}
             <div className="flex-1 relative group min-h-0 bg-[#161b22] border border-white/5 rounded-2xl overflow-auto custom-scrollbar">
               <Editor
                 value={input}
@@ -1425,7 +1477,7 @@ export default function App() {
                       )}
                     >
                       {generatingTests
-                        ? <><Loader className="w-3 h-3 animate-spin" />Generando…</>
+                        ? <><Loader className="w-3 h-3 animate-spin" />{problemStatement.trim() ? "Analizando enunciado…" : "Generando…"}</>
                         : <><Sparkles className="w-3 h-3" />✨ Generar tests</>
                       }
                     </button>
@@ -1459,6 +1511,26 @@ export default function App() {
     {/* Botón corregir global eliminado — la sugerencia es por prueba */}
                   </div>
                 </div>
+
+                {/* Puntos críticos del enunciado (si existen) */}
+                {criticalPoints && testCases.length > 0 && (
+                  <div className="mx-4 mb-3 mt-2 bg-amber-500/5 border border-amber-500/15 rounded-xl px-3 py-2">
+                    <button
+                      onClick={() => setShowCriticalPoints(v => !v)}
+                      className="w-full text-[9px] font-bold uppercase tracking-wider text-amber-500 flex items-center gap-1 cursor-pointer"
+                    >
+                      <Scale className="w-3 h-3 shrink-0" />
+                      Tests basados en requisitos del enunciado
+                      <span className="ml-auto text-amber-600 font-normal normal-case tracking-normal flex items-center gap-1">
+                        FAIL = código no cumple el enunciado
+                        {showCriticalPoints ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+                      </span>
+                    </button>
+                    {showCriticalPoints && (
+                      <p className="text-[10px] text-slate-400 leading-relaxed whitespace-pre-wrap mt-1.5">{criticalPoints}</p>
+                    )}
+                  </div>
+                )}
 
                 {/* Test list */}
                 {testResults.length > 0 && (
@@ -1725,6 +1797,16 @@ export default function App() {
                     icon = <BrainCircuit className="w-3.5 h-3.5 text-violet-400" />;
                     label = "Iniciando bucle agentico…";
                     color = "text-violet-300";
+                  } else if (step.type === "analyzing_problem") {
+                    icon = isLast && agentRunning
+                      ? <Loader className="w-3.5 h-3.5 text-amber-400 animate-spin" />
+                      : <Scale className="w-3.5 h-3.5 text-amber-400" />;
+                    label = "Analizando enunciado y extrayendo puntos críticos…";
+                    color = "text-amber-300";
+                  } else if (step.type === "analysis_done") {
+                    icon = <ShieldCheck className="w-3.5 h-3.5 text-amber-400" />;
+                    label = "Puntos críticos identificados";
+                    color = "text-amber-300";
                   } else if (step.type === "generating_tests") {
                     icon = isLast && agentRunning
                       ? <Loader className="w-3.5 h-3.5 text-violet-400 animate-spin" />
@@ -1771,15 +1853,23 @@ export default function App() {
                   }
 
                   return (
-                    <div key={i} className="flex items-center gap-3 py-1">
-                      <div className="w-5 h-5 flex items-center justify-center shrink-0">{icon}</div>
-                      <span className={cn("text-xs font-mono", color)}>{label}</span>
-                      {isLast && agentRunning && step.type !== "running_tests" && step.type !== "generating_tests" && (
-                        <span className="inline-flex gap-0.5 ml-1">
-                          {[0, 100, 200].map((d) => (
-                            <span key={d} className="w-1 h-1 rounded-full bg-violet-400 animate-bounce" style={{ animationDelay: `${d}ms` }} />
-                          ))}
-                        </span>
+                    <div key={i} className="flex flex-col gap-1">
+                      <div className="flex items-center gap-3 py-1">
+                        <div className="w-5 h-5 flex items-center justify-center shrink-0">{icon}</div>
+                        <span className={cn("text-xs font-mono", color)}>{label}</span>
+                        {isLast && agentRunning && step.type !== "running_tests" && step.type !== "generating_tests" && step.type !== "analyzing_problem" && (
+                          <span className="inline-flex gap-0.5 ml-1">
+                            {[0, 100, 200].map((d) => (
+                              <span key={d} className="w-1 h-1 rounded-full bg-violet-400 animate-bounce" style={{ animationDelay: `${d}ms` }} />
+                            ))}
+                          </span>
+                        )}
+                      </div>
+                      {step.type === "analysis_done" && step.criticalPoints && (
+                        <div className="ml-8 bg-amber-500/5 border border-amber-500/15 rounded-xl px-3 py-2">
+                          <p className="text-[9px] font-bold uppercase tracking-wider text-amber-500 mb-1">Puntos críticos</p>
+                          <p className="text-[10px] text-slate-400 leading-relaxed whitespace-pre-wrap">{step.criticalPoints}</p>
+                        </div>
                       )}
                     </div>
                   );
